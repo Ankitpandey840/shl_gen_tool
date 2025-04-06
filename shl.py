@@ -4,7 +4,8 @@ from sentence_transformers import SentenceTransformer, util
 from transformers import pipeline
 
 # Load embedding model
-embedder = SentenceTransformer('all-MiniLM-L6-v2')
+embedder = SentenceTransformer('paraphrase-MiniLM-L3-v2')
+
 
 # Load generation model from Hugging Face
 generator = pipeline("text2text-generation", model="google/flan-t5-small")
