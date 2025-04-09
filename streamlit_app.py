@@ -165,7 +165,7 @@ if st.button("Generate Recommendations"):
 # Footer
 st.markdown("""
 <hr>
-<p style="text-align:center;font-size:0.9em;">Made with ❤️ using <a href="https://streamlit.io/" target="_blank">Streamlit</a> and <a href="https://huggingface.co/" target="_blank">Hugging Face</a>.</p>
+<p style="text-align:center;font-size:0.9em;">Made with  using <a href="https://streamlit.io/" target="_blank">Streamlit</a> and <a href="https://huggingface.co/" target="_blank">Hugging Face</a>.</p>
 <div class="section" style="background-color: white(50); color: red;">
     <h2>THANKS TO USE OUR GEN AI RECOMMENDATION SYSTEM </h2>
 </div>
