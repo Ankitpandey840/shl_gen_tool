@@ -1,5 +1,6 @@
-streamlit
-pandas
-sentence-transformers
-transformers
-torch==1.13.1+cpu
+streamlit==1.32.2
+pandas==2.0.3
+sentence-transformers==2.2.2
+transformers==4.37.2
+torch==2.1.2
+protobuf==3.20.3
