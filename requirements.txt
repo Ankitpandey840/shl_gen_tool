@@ -1,5 +1,5 @@
 streamlit
 pandas
-transformers
 sentence-transformers
-torch
+transformers
+torch==1.13.1+cpu
