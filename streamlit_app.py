@@ -1,16 +1,34 @@
+import asyncio
 import streamlit as st
 import pandas as pd
 from sentence_transformers import SentenceTransformer, util
 from transformers import pipeline
+import torch
 
-# Load embedding model
-embedder = SentenceTransformer('paraphrase-MiniLM-L3-v2')
+# ========== FIXES FOR DEPLOYMENT ==========
+# Fix event loop issues (critical for Streamlit)
+if not asyncio.get_event_loop().is_running():
+    asyncio.set_event_loop(asyncio.new_event_loop())
 
+# Memory optimization (reduces crashes on free hosting)
+torch.set_num_threads(1)
+torch.set_num_interop_threads(1)
 
-# Load generation model from Hugging Face
-generator = pipeline("text2text-generation", model="google/flan-t5-small")
+# ========== MODEL LOADING (Optimized for CPU) ==========
+@st.cache_resource  # Cache models to avoid reloading
+def load_models():
+    # Using smaller models to fit free tier memory limits
+    embedder = SentenceTransformer('all-MiniLM-L6-v2', device='cpu')
+    generator = pipeline(
+        "text2text-generation", 
+        model="google/flan-t5-small",  # Smaller than flan-t5-base
+        device=-1  # Force CPU
+    )
+    return embedder, generator
 
-#shl load generation
+embedder, generator = load_models()
+
+# ========== SHL ASSESSMENT CATALOG ==========
 data = [
     {"id": 1, "name": "Sales Potential Test", "role": "Sales", "seniority": "Entry", "skills": "Communication, Persuasion"},
     {"id": 2, "name": "Technical Aptitude Test", "role": "Tech", "seniority": "Entry", "skills": "Problem Solving, Logic"},
@@ -21,12 +39,18 @@ data = [
 ]
 catalog = pd.DataFrame(data)
 catalog['text'] = catalog['role'] + " " + catalog['seniority'] + " " + catalog['skills'] + " " + catalog['name']
-catalog_embeddings = embedder.encode(catalog['text'].tolist(), convert_to_tensor=True)
 
-# Streamlit Page Config
+# Precompute embeddings (cached for performance)
+@st.cache_data
+def get_embeddings():
+    return embedder.encode(catalog['text'].tolist(), convert_to_tensor=True)
+
+catalog_embeddings = get_embeddings()
+
+# ========== STREAMLIT UI ==========
 st.set_page_config(page_title="SHL GenAI Assessment Tool", layout="wide")
 
-# Custom SHL-like Styling
+# Custom CSS (your existing styling remains unchanged)
 st.markdown("""
 <style>
     html, body, [class*="css"]  {
@@ -77,7 +101,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Navbar
+# Navbar (unchanged)
 st.markdown("""
 <div class="navbar">
     <a href="#">Home</a>
@@ -95,92 +119,67 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# SHL Brand Logo (fallback to header text)
+# Header
 st.markdown("<h1 style='color:#4b2e83;'>SHL</h1>", unsafe_allow_html=True)
-
-# Title and Description
 st.markdown("""
 <div class="main">
 <h1> SHL GenAI Assessment Recommendation Tool</h1>
 <p>Welcome to the <strong>SHL GenAI Assessment Recommendation Tool</strong>! </p>
 <p>Paste a job description below, and let our AI recommend the best-fit assessments from our catalog based on the role, seniority, and skills required.</p>
-<p><strong>Find assessments that best meet your needs.</strong><br>
-Browse through our extensive product catalog for science-backed assessments that evaluate cognitive ability, personality, behavior, skills, and more, by role and organizational level, by industry, and by language.</p>
 """, unsafe_allow_html=True)
 
 # Input Area
-job_input = st.text_area(" Paste the Job Description or Role Info:", height=200)
+job_input = st.text_area("Paste the Job Description or Role Info:", height=200)
 
 # Generate Button
 if st.button("Generate Recommendations"):
-    if job_input.strip() == "":
-        st.warning(" Please enter a job description to proceed.")
+    if not job_input.strip():
+        st.warning("Please enter a job description to proceed.")
     else:
-        with st.spinner("Thinking with GenAI..."):
-            input_embedding = embedder.encode(job_input, convert_to_tensor=True)
-            similarities = util.pytorch_cos_sim(input_embedding, catalog_embeddings)[0]
-            top_k = min(3, len(similarities))
-            top_results = similarities.topk(k=top_k)
+        with st.spinner("Analyzing with AI..."):
+            try:
+                # Compute similarity
+                input_embedding = embedder.encode(job_input, convert_to_tensor=True)
+                similarities = util.pytorch_cos_sim(input_embedding, catalog_embeddings)[0]
+                top_k = min(3, len(similarities))
+                top_results = similarities.topk(k=top_k)
 
-            retrieved_info = ""
-            top_assessments = []
-            for score, idx in zip(top_results.values, top_results.indices):
-                item = catalog.iloc[idx.item()]
-                top_assessments.append(item)
-                retrieved_info += f"- {item['name']} ({item['role']}, {item['seniority']}): {item['skills']}\n"
+                # Prepare retrieved info
+                retrieved_info = ""
+                top_assessments = []
+                for score, idx in zip(top_results.values, top_results.indices):
+                    item = catalog.iloc[idx.item()]
+                    top_assessments.append(item)
+                    retrieved_info += f"- {item['name']} ({item['role']}, {item['seniority']}): {item['skills']}\n"
 
-            prompt = f"Job Description: {job_input}\n\nAvailable Assessments:\n{retrieved_info}\n\nBased on the job description and the assessments, which ones are most suitable and why?"
-            output = generator(prompt, max_length=256, do_sample=False)[0]['generated_text']
+                # Generate AI explanation
+                prompt = f"""Job Description: {job_input}\n\nAvailable Assessments:\n{retrieved_info}\n\nRecommend the most suitable assessments from the list above for this job description, explaining your reasoning in 2-3 sentences."""
+                output = generator(prompt, max_length=300, do_sample=False)[0]['generated_text']
 
-            st.subheader(" AI Recommendations:")
-            st.success(output)
+                # Display results
+                st.subheader("AI Recommendations:")
+                st.success(output)
 
-            st.markdown("""
----
-<h4> Retrieved Assessments:</h4>
-""", unsafe_allow_html=True)
-            for i, a in enumerate(top_assessments, 1):
-                st.markdown(f"**{i}. {a['name']}**<br>• Role: {a['role']}<br>• Seniority: {a['seniority']}<br>• Skills: {a['skills']}", unsafe_allow_html=True)
+                st.markdown("---")
+                st.markdown("<h4>Top Matching Assessments:</h4>", unsafe_allow_html=True)
+                for i, a in enumerate(top_assessments, 1):
+                    st.markdown(f"**{i}. {a['name']}**<br>• Role: {a['role']}<br>• Seniority: {a['seniority']}<br>• Skills: {a['skills']}", unsafe_allow_html=True)
 
-            # Downloadable report button
-            report_md = f"### SHL GenAI Recommendations\n\n**Job Description:**\n{job_input}\n\n**AI Recommendation:**\n{output}\n\n**Top Matches:**\n" + "\n".join([f"{i+1}. {a['name']} ({a['role']}, {a['seniority']}): {a['skills']}" for i, a in enumerate(top_assessments)])
-            st.download_button(
-                label=" Download Recommendations",
-                data=report_md,
-                file_name="shl_genai_recommendations.txt",
-                mime="text/plain"
-            )
+                # Download report
+                report_md = f"### SHL GenAI Recommendations\n\n**Job Description:**\n{job_input}\n\n**AI Recommendation:**\n{output}\n\n**Top Matches:**\n" + "\n".join([f"{i+1}. {a['name']} ({a['role']}, {a['seniority']}): {a['skills']}" for i, a in enumerate(top_assessments)])
+                st.download_button(
+                    label="Download Recommendations",
+                    data=report_md,
+                    file_name="shl_genai_recommendations.txt",
+                    mime="text/plain"
+                )
+
+            except Exception as e:
+                st.error(f" Error: {str(e)}")
+                st.info("If this persists, try a shorter job description or check back later.")
 
 # Footer
 st.markdown("""
 <hr>
-<p style="text-align:center;font-size:0.9em;">Made with  using <a href="https://streamlit.io/" target="_blank">Streamlit</a> and <a href="https://huggingface.co/" target="_blank">Hugging Face</a>.</p>
-<head>
-    <style>
-        #footer {
-            position: sticky;
-            padding: 5px;
-            bottom: 0;
-            width: 80%;
-            height: 50px;
-            background: white(55);
-            color: white;
-            font-size: 30px;
-        }
-        .section {
-            width: 100%;
-            height: 150px;
-        }
-    </style>
-</head>
-<body>
-    <div class="section" style="background-color: white(50); color: red;">
-        <h2>THANKS TO USE OUR GEN AI REOMENDATION SYSTEM </h2>
-    </div>
-    <div class="section" style="background-color: white(50); color: red;">
-        <h2>PLEASE VISIT AGAIN</h2>
-    </div>
-    
-</body>
-            </div>
+<p style="text-align:center;font-size:0.9em;">Made with using <a href="https://streamlit.io/" target="_blank">Streamlit</a> and <a href="https://huggingface.co/" target="_blank">Hugging Face</a>.</p>
 """, unsafe_allow_html=True)
