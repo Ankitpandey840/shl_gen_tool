@@ -1,16 +1,29 @@
 import streamlit as st
 import pandas as pd
 from sentence_transformers import SentenceTransformer, util
-from transformers import pipeline
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
+import torch
+import asyncio
+
+# Fix for Python 3.12's asyncio issue
+try:
+    asyncio.get_event_loop()
+except RuntimeError:
+    asyncio.set_event_loop(asyncio.new_event_loop())
 
 # Load embedding model
 embedder = SentenceTransformer('paraphrase-MiniLM-L3-v2')
 
+# Load generation model manually
+tokenizer = AutoTokenizer.from_pretrained("google/flan-t5-small")
+model = AutoModelForSeq2SeqLM.from_pretrained("google/flan-t5-small")
 
-# Load generation model from Hugging Face
-generator = pipeline("text2text-generation", model="google/flan-t5-small")
+def generate_text(prompt):
+    inputs = tokenizer(prompt, return_tensors="pt", max_length=512, truncation=True)
+    outputs = model.generate(**inputs, max_length=256)
+    return tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-#shl load generation
+# SHL sample catalog
 data = [
     {"id": 1, "name": "Sales Potential Test", "role": "Sales", "seniority": "Entry", "skills": "Communication, Persuasion"},
     {"id": 2, "name": "Technical Aptitude Test", "role": "Tech", "seniority": "Entry", "skills": "Problem Solving, Logic"},
@@ -95,23 +108,22 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# SHL Brand Logo (fallback to header text)
+# SHL Brand Logo or Title
 st.markdown("<h1 style='color:#4b2e83;'>SHL</h1>", unsafe_allow_html=True)
 
-# Title and Description
+# Title & Description
 st.markdown("""
 <div class="main">
 <h1> SHL GenAI Assessment Recommendation Tool</h1>
-<p>Welcome to the <strong>SHL GenAI Assessment Recommendation Tool</strong>! </p>
+<p>Welcome to the <strong>SHL GenAI Assessment Recommendation Tool</strong>!</p>
 <p>Paste a job description below, and let our AI recommend the best-fit assessments from our catalog based on the role, seniority, and skills required.</p>
-<p><strong>Find assessments that best meet your needs.</strong><br>
-Browse through our extensive product catalog for science-backed assessments that evaluate cognitive ability, personality, behavior, skills, and more, by role and organizational level, by industry, and by language.</p>
+<p><strong>Find assessments that best meet your needs.</strong></p>
 """, unsafe_allow_html=True)
 
-# Input Area
+# Input
 job_input = st.text_area(" Paste the Job Description or Role Info:", height=200)
 
-# Generate Button
+# Generate Recommendations
 if st.button("Generate Recommendations"):
     if job_input.strip() == "":
         st.warning(" Please enter a job description to proceed.")
@@ -130,7 +142,7 @@ if st.button("Generate Recommendations"):
                 retrieved_info += f"- {item['name']} ({item['role']}, {item['seniority']}): {item['skills']}\n"
 
             prompt = f"Job Description: {job_input}\n\nAvailable Assessments:\n{retrieved_info}\n\nBased on the job description and the assessments, which ones are most suitable and why?"
-            output = generator(prompt, max_length=256, do_sample=False)[0]['generated_text']
+            output = generate_text(prompt)
 
             st.subheader(" AI Recommendations:")
             st.success(output)
@@ -142,7 +154,6 @@ if st.button("Generate Recommendations"):
             for i, a in enumerate(top_assessments, 1):
                 st.markdown(f"**{i}. {a['name']}**<br>• Role: {a['role']}<br>• Seniority: {a['seniority']}<br>• Skills: {a['skills']}", unsafe_allow_html=True)
 
-            # Downloadable report button
             report_md = f"### SHL GenAI Recommendations\n\n**Job Description:**\n{job_input}\n\n**AI Recommendation:**\n{output}\n\n**Top Matches:**\n" + "\n".join([f"{i+1}. {a['name']} ({a['role']}, {a['seniority']}): {a['skills']}" for i, a in enumerate(top_assessments)])
             st.download_button(
                 label=" Download Recommendations",
@@ -154,33 +165,11 @@ if st.button("Generate Recommendations"):
 # Footer
 st.markdown("""
 <hr>
-<p style="text-align:center;font-size:0.9em;">Made with  using <a href="https://streamlit.io/" target="_blank">Streamlit</a> and <a href="https://huggingface.co/" target="_blank">Hugging Face</a>.</p>
-<head>
-    <style>
-        #footer {
-            position: sticky;
-            padding: 5px;
-            bottom: 0;
-            width: 80%;
-            height: 50px;
-            background: white(55);
-            color: white;
-            font-size: 30px;
-        }
-        .section {
-            width: 100%;
-            height: 150px;
-        }
-    </style>
-</head>
-<body>
-    <div class="section" style="background-color: white(50); color: red;">
-        <h2>THANKS TO USE OUR GEN AI REOMENDATION SYSTEM </h2>
-    </div>
-    <div class="section" style="background-color: white(50); color: red;">
-        <h2>PLEASE VISIT AGAIN</h2>
-    </div>
-    
-</body>
-            </div>
+<p style="text-align:center;font-size:0.9em;">Made with ❤️ using <a href="https://streamlit.io/" target="_blank">Streamlit</a> and <a href="https://huggingface.co/" target="_blank">Hugging Face</a>.</p>
+<div class="section" style="background-color: white(50); color: red;">
+    <h2>THANKS TO USE OUR GEN AI RECOMMENDATION SYSTEM </h2>
+</div>
+<div class="section" style="background-color: white(50); color: red;">
+    <h2>PLEASE VISIT AGAIN</h2>
+</div>
 """, unsafe_allow_html=True)
